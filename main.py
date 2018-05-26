@@ -57,19 +57,33 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     """
     # TODO: Implement function
     layer7_conv1x1 = tf.layers.conv2d(vgg_layer7_out, num_classes, 1, padding='same',
+                    kernel_initializer= tf.random_normal_initializer(stddev=0.01),
                     kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-    layer7_4x = tf.layers.conv2d_transpose(layer7_conv1x1, num_classes, 4, 4,padding='same',
-                    kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-
+    #Double the size so that the dimention matched the layer 4
+    layer7_2x = tf.layers.conv2d_transpose(layer7_conv1x1, num_classes, 4, 2,padding='same',
+                kernel_initializer= tf.random_normal_initializer(stddev=0.01),
+                kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
+    #1x1 convolution to make the output layers equal to num_classes
     layer4_conv1x1 = tf.layers.conv2d(vgg_layer4_out, num_classes, 1, padding='same',
+                    kernel_initializer= tf.random_normal_initializer(stddev=0.01),
                     kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-    layer4_2x = tf.layers.conv2d_transpose(layer4_conv1x1, num_classes, 4, 2,padding='same',
+    #Add the upsampled 7th layer with 4th layer
+    layer74 = tf.add(layer7_2x, layer4_conv1x1)
+    # Upsampling : x2 to make the size equal to layer3
+    layer74_2x = tf.layers.conv2d_transpose(layer4_conv1x1, num_classes, 4, 2,padding='same',
+                    kernel_initializer= tf.random_normal_initializer(stddev=0.01),
                     kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-
-    layer3_conv1x1 = tf.layers.conv2d(vgg_layer7_out, num_classes, 1, padding='same',
+    #1x1 convolution to make the output layers equal to num_classes
+    layer3_conv1x1 = tf.layers.conv2d(vgg_layer3_out, num_classes, 1, padding='same',
+                    kernel_initializer= tf.random_normal_initializer(stddev=0.01),
                     kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-
-    return None
+    #Add the upsampled 7th layer with 4th layer
+    layer743 = tf.add(layer74_2x, layer3_conv1x1)
+    # Upsampling : x8 to make the size equal to layer3
+    Output = tf.layers.conv2d_transpose(layer743, num_classes, 16, 8,padding='same',
+                    kernel_initializer= tf.random_normal_initializer(stddev=0.01),
+                    kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
+    return Output
 tests.test_layers(layers)
 
 
@@ -83,7 +97,12 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     :return: Tuple of (logits, train_op, cross_entropy_loss)
     """
     # TODO: Implement function
-    return None, None, None
+    logits = tf.reshape(nn_last_layer, (-1, num_classes))
+    cross_entropy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=correct_label))
+    optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate)
+    training_operation = optimizer.minimize(cross_entropy_loss)
+
+    return logits, training_operation, cross_entropy_loss
 tests.test_optimize(optimize)
 
 
@@ -103,7 +122,17 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     :param learning_rate: TF Placeholder for learning rate
     """
     # TODO: Implement function
-    pass
+    sess.run(tf.global_variables_initializer())
+    print("Training...")
+    print()
+    for epoch in range(epochs):
+        print("EPOCH {} ...".format(epoch+1))
+        for image, label in get_batches_fn(batch_size):
+             _ , loss = sess.run([train_op, cross_entropy_loss],feed_dict={input_image: image, correct_label: label, keep_prob: 0.5})
+             print(loss)
+             #print("Loss: = {:.3f}".format(loss))
+
+        print()
 tests.test_train_nn(train_nn)
 
 
@@ -121,6 +150,11 @@ def run():
     # You'll need a GPU with at least 10 teraFLOPS to train on.
     #  https://www.cityscapes-dataset.com/
 
+    # Hyper Parameters
+    EPOCHS = 20 #instead of 50
+    BATCH_SIZE = 5 #instead of 128
+    L_RATE = 0.001 #instead of 0.002
+
     with tf.Session() as sess:
         # Path to vgg model
         vgg_path = os.path.join(data_dir, 'vgg')
@@ -131,11 +165,21 @@ def run():
         #  https://datascience.stackexchange.com/questions/5224/how-to-prepare-augment-images-for-neural-network
 
         # TODO: Build NN using load_vgg, layers, and optimize function
+        correct_label = tf.placeholder(tf.int32, [None, None, None, num_classes], name='correct_label')
+        #learning_rate = tf.placeholder(tf.float32, name='learning_rate')
+        learning_rate = L_RATE
+
+        vgg_input, vgg_keep_prob, vgg_layer3, vgg_layer4, vgg_layer7 = load_vgg(sess, vgg_path)
+        layer_output = layers(vgg_layer3, vgg_layer4, vgg_layer7, num_classes)
+        logits, training_operation, cross_entropy_loss = optimize(layer_output, correct_label, learning_rate, num_classes)
 
         # TODO: Train NN using the train_nn function
+        train_nn(sess, EPOCHS, BATCH_SIZE, get_batches_fn, training_operation, cross_entropy_loss, vgg_input, correct_label, vgg_keep_prob, learning_rate)
 
         # TODO: Save inference data using helper.save_inference_samples
         #  helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, input_image)
+        helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, vgg_keep_prob, vgg_input)
+
 
         # OPTIONAL: Apply the trained model to a video
 
