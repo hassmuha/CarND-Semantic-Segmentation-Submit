@@ -28,11 +28,11 @@ def load_vgg(sess, vgg_path):
     #   Use tf.saved_model.loader.load to load the model and weights
 
     vgg_tag = 'vgg16'
-    vgg_input_tensor_name = 'image_input:0' # TODO : Why? For Feeding image
-    vgg_keep_prob_tensor_name = 'keep_prob:0' # TODO : Why? Because it can be o.5 during learning and 1.0 during testing
-    vgg_layer3_out_tensor_name = 'layer3_out:0' # TODO : Why? For FCN-8s
-    vgg_layer4_out_tensor_name = 'layer4_out:0' # TODO : Why? For FCN-8s
-    vgg_layer7_out_tensor_name = 'layer7_out:0' # TODO : Why? For FCN-8s
+    vgg_input_tensor_name = 'image_input:0' # For Feeding image
+    vgg_keep_prob_tensor_name = 'keep_prob:0' # Because it can be o.5 during learning and 1.0 during testing
+    vgg_layer3_out_tensor_name = 'layer3_out:0' # For FCN-8s
+    vgg_layer4_out_tensor_name = 'layer4_out:0' # For FCN-8s
+    vgg_layer7_out_tensor_name = 'layer7_out:0' # For FCN-8s
 
     tf.saved_model.loader.load(sess,[vgg_tag],vgg_path)
     graph = tf.get_default_graph()
@@ -46,44 +46,6 @@ def load_vgg(sess, vgg_path):
 tests.test_load_vgg(load_vgg, tf)
 
 
-def layers_old(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
-    """
-    Create the layers for a fully convolutional network.  Build skip-layers using the vgg layers.
-    :param vgg_layer3_out: TF Tensor for VGG Layer 3 output
-    :param vgg_layer4_out: TF Tensor for VGG Layer 4 output
-    :param vgg_layer7_out: TF Tensor for VGG Layer 7 output
-    :param num_classes: Number of classes to classify
-    :return: The Tensor for the last layer of output
-    """
-    # TODO: Implement function
-    layer7_conv1x1 = tf.layers.conv2d(vgg_layer7_out, num_classes, 1, padding='same',
-                    kernel_initializer= tf.random_normal_initializer(stddev=0.01),
-                    kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-    #Double the size so that the dimention matched the layer 4
-    layer7_2x = tf.layers.conv2d_transpose(layer7_conv1x1, num_classes, 4, 2,padding='same',
-                kernel_initializer= tf.random_normal_initializer(stddev=0.01),
-                kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-    #1x1 convolution to make the output layers equal to num_classes
-    layer4_conv1x1 = tf.layers.conv2d(vgg_layer4_out, num_classes, 1, padding='same',
-                    kernel_initializer= tf.random_normal_initializer(stddev=0.01),
-                    kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-    #Add the upsampled 7th layer with 4th layer
-    layer74 = tf.add(layer7_2x, layer4_conv1x1)
-    # Upsampling : x2 to make the size equal to layer3
-    layer74_2x = tf.layers.conv2d_transpose(layer4_conv1x1, num_classes, 4, 2,padding='same',
-                    kernel_initializer= tf.random_normal_initializer(stddev=0.01),
-                    kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-    #1x1 convolution to make the output layers equal to num_classes
-    layer3_conv1x1 = tf.layers.conv2d(vgg_layer3_out, num_classes, 1, padding='same',
-                    kernel_initializer= tf.random_normal_initializer(stddev=0.01),
-                    kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-    #Add the upsampled 7th layer with 4th layer
-    layer743 = tf.add(layer74_2x, layer3_conv1x1)
-    # Upsampling : x8 to make the size equal to layer3
-    Output = tf.layers.conv2d_transpose(layer743, num_classes, 16, 8,padding='same',
-                    kernel_initializer= tf.random_normal_initializer(stddev=0.01),
-                    kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-    return Output
 def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     """
     Create the layers for a fully convolutional network.  Build skip-layers using the vgg layers.
@@ -94,8 +56,10 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     :return: The Tensor for the last layer of output
     """
     # TODO: Implement function
-    # In this funciton
-    #Four times the size so that the dimention matched the scaled layer 4 and layer 3
+    # First used the approach as described in project walkthrough video but later
+    # changed to scale the layer 7 and 4 first before applying 1x1 convolution
+
+    #Upsampling : x4 to make the size equal to scaled layer 4 and layer 3
     layer7_4x = tf.layers.conv2d_transpose(vgg_layer7_out, num_classes, 8, 4,padding='same',
                 kernel_initializer= tf.random_normal_initializer(stddev=0.01),
                 kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
@@ -118,9 +82,9 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     layer3_conv1x1 = tf.layers.conv2d(vgg_layer3_out, num_classes, 1, padding='same',
                     kernel_initializer= tf.random_normal_initializer(stddev=0.01),
                     kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-    #Add the upsampled 7th layer with 4th layer
+    #Add the upsampled 7th layer with 3th layer
     layer743 = tf.add(layer74, layer3_conv1x1)
-    # Upsampling : x8 to make the size equal to layer3
+    # Upsampling : x8 to make the size equal to original image size
     Output = tf.layers.conv2d_transpose(layer743, num_classes, 16, 8,padding='same',
                     kernel_initializer= tf.random_normal_initializer(stddev=0.01),
                     kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
@@ -140,10 +104,13 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     """
     # TODO: Implement function
     logits = tf.reshape(nn_last_layer, (-1, num_classes))
+    # calculate the cross entropy loss
     cross_entropy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=correct_label))
+    # for adding regularization loss terms
     reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
     reg_constant = 0.01
     cross_entropy_loss_with_l2 = cross_entropy_loss + reg_constant * sum(reg_losses)
+
     optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate)
     training_operation = optimizer.minimize(cross_entropy_loss_with_l2)
 
@@ -177,11 +144,9 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
         for image, label in get_batches_fn(batch_size):
              _ , loss = sess.run([train_op, cross_entropy_loss],feed_dict={input_image: image, correct_label: label, keep_prob: 0.5})
              actual_batch_size = image.shape[0]
-             #print(actual_batch_size)
              total_loss = total_loss + (loss * actual_batch_size)
              total_train_size = total_train_size + actual_batch_size
-             #print("Loss: = {:.3f}".format(loss))
-
+        # print average loss calculated over all training set
         print(total_loss/total_train_size)
         print()
 tests.test_train_nn(train_nn)
